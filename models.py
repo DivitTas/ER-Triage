@@ -32,7 +32,7 @@ class ErTriageAction(Action):
 
 
 class ErTriageObservation(Observation):
-    """Observation showing current patient's vital signs."""
+    """Observation showing current patient's vital signs and resource state."""
 
     patient_id: int = Field(..., description="Unique patient identifier")
     systolic_bp: int = Field(..., description="Systolic blood pressure (mmHg)")
@@ -43,4 +43,6 @@ class ErTriageObservation(Observation):
     oxygen_saturation: int = Field(..., description="SpO2 percentage")
     chief_complaint: str = Field(..., description="Patient's main complaint")
     patients_remaining: int = Field(..., description="Patients left in queue")
+    critical_beds_available: int = Field(..., description="Available critical care beds (0-2)")
+    current_patient_wait_time: int = Field(..., description="Steps this patient has waited")
 
