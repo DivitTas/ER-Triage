@@ -4,9 +4,14 @@ ER Triage Inference Script
 Runs an LLM agent through the ER Triage environment for all 3 tasks.
 
 Environment Variables (from .env):
-    API_BASE_URL   - The API endpoint for the LLM (default: HuggingFace router)
-    MODEL_NAME     - The model identifier (default: Qwen/Qwen2.5-72B-Instruct)
-    HF_TOKEN       - Your HuggingFace API token
+    OPENAI_BASE_URL - Optional override for the OpenAI-compatible API endpoint
+    OPENAI_MODEL    - Optional override for the default OpenAI model
+    OPENAI_API_KEY  - Your OpenAI API key
+
+Legacy Hugging Face compatibility:
+    API_BASE_URL    - Legacy Hugging Face router endpoint override
+    MODEL_NAME      - Legacy Hugging Face model name
+    HF_TOKEN        - Legacy Hugging Face token
 
 STDOUT FORMAT:
     [START] task=<task_name> env=<benchmark> model=<model_name>
@@ -16,23 +21,44 @@ STDOUT FORMAT:
 
 import os
 import re
+import sys
 import textwrap
 from typing import List, Optional
 
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from ER_Triage import ErTriageEnv, ErTriageAction, TriagePriority
+from ER_Triage import ErTriageAction, TriagePriority
 from ER_Triage.server import ErTriageEnvironment
 
 # Load environment variables from .env
 load_dotenv()
 
+DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
+DEFAULT_HF_BASE_URL = "https://router.huggingface.co/v1"
+DEFAULT_HF_MODEL = "Qwen/Qwen2.5-72B-Instruct"
+
+
+def resolve_llm_config() -> tuple[str, str, str]:
+    """Resolve provider settings with OpenAI defaults and legacy HF fallback."""
+    openai_api_key = os.getenv("OPENAI_API_KEY") or os.getenv("API_KEY")
+    openai_base_url = os.getenv("OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL)
+    openai_model = os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)
+
+    hf_api_key = os.getenv("HF_TOKEN")
+    hf_base_url = os.getenv("API_BASE_URL")
+    hf_model = os.getenv("MODEL_NAME", DEFAULT_HF_MODEL)
+
+    # Preserve existing Hugging Face setups when OpenAI credentials are absent.
+    if not openai_api_key and (hf_api_key or hf_base_url):
+        return hf_base_url or DEFAULT_HF_BASE_URL, hf_model, hf_api_key or ""
+
+    return openai_base_url, openai_model, openai_api_key or ""
+
+
 # Configuration
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-API_KEY = os.getenv("HF_TOKEN")
-IMAGE_NAME = os.getenv("IMAGE_NAME")  # Optional: for Docker-based env
+API_BASE_URL, MODEL_NAME, API_KEY = resolve_llm_config()
 
 BENCHMARK = "er_triage"
 TASKS = ["task_1", "task_2", "task_3"]
@@ -115,7 +141,7 @@ def parse_priority(response: str) -> int:
     return 3
 
 
-def get_triage_decision(client: OpenAI, obs) -> int:
+def get_triage_decision(client: OpenAI, obs) -> tuple[int, Optional[str]]:
     """Get triage priority from LLM based on patient vitals."""
     user_prompt = build_patient_prompt(obs)
     try:
@@ -130,10 +156,10 @@ def get_triage_decision(client: OpenAI, obs) -> int:
             stream=False,
         )
         response = (completion.choices[0].message.content or "").strip()
-        return parse_priority(response)
+        return parse_priority(response), None
     except Exception as exc:
-        print(f"[DEBUG] Model request failed: {exc}", flush=True)
-        return 3  # Default to URGENT on error
+        sanitized_error = " ".join(str(exc).split())
+        return 3, sanitized_error or "model_request_failed"
 
 
 def run_task(client: OpenAI, task_id: str) -> dict:
@@ -155,7 +181,7 @@ def run_task(client: OpenAI, task_id: str) -> dict:
                 break
             
             # Get LLM triage decision
-            priority_num = get_triage_decision(client, obs)
+            priority_num, error = get_triage_decision(client, obs)
             priority = TriagePriority(priority_num)
             action = ErTriageAction(priority=priority)
             
@@ -164,8 +190,6 @@ def run_task(client: OpenAI, task_id: str) -> dict:
             
             reward = obs.reward
             done = obs.done
-            error = None
-            
             rewards.append(reward)
             steps_taken = step
             
@@ -185,7 +209,7 @@ def run_task(client: OpenAI, task_id: str) -> dict:
         success = score >= 0.5  # Consider success if average reward >= 0.5
         
     except Exception as e:
-        print(f"[DEBUG] Task error: {e}", flush=True)
+        print(f"Task error for {task_id}: {e}", file=sys.stderr, flush=True)
         score = 0.0
         success = False
     
@@ -203,32 +227,19 @@ def run_task(client: OpenAI, task_id: str) -> dict:
 def main() -> None:
     """Run inference on all 3 tasks."""
     if not API_KEY:
-        print("[ERROR] HF_TOKEN not set. Please set it in your .env file.", flush=True)
-        return
+        print(
+            "No LLM credentials found. Set OPENAI_API_KEY for the default OpenAI path, "
+            "or keep using the legacy Hugging Face settings with HF_TOKEN/API_BASE_URL.",
+            file=sys.stderr,
+            flush=True,
+        )
+        raise SystemExit(1)
     
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     
-    results = []
     for task_id in TASKS:
-        print(f"\n{'='*50}", flush=True)
-        print(f"Running {task_id}...", flush=True)
-        print(f"{'='*50}\n", flush=True)
-        
-        result = run_task(client, task_id)
-        results.append(result)
-    
-    # Summary
-    print(f"\n{'='*50}", flush=True)
-    print("SUMMARY", flush=True)
-    print(f"{'='*50}", flush=True)
-    for r in results:
-        status = "✓" if r["success"] else "✗"
-        print(f"{status} {r['task_id']}: score={r['score']:.2f}, steps={r['steps']}", flush=True)
-    
-    avg_score = sum(r["score"] for r in results) / len(results)
-    print(f"\nAverage score: {avg_score:.2f}", flush=True)
+        run_task(client, task_id)
 
 
 if __name__ == "__main__":
     main()
-

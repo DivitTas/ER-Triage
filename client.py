@@ -25,7 +25,7 @@ class ErTriageEnv(
     enabling efficient multi-step interactions with lower latency.
 
     Example:
-        >>> with ErTriageEnv(base_url="http://localhost:8000") as client:
+        >>> with ErTriageEnv(base_url="http://localhost:8000").sync() as client:
         ...     result = client.reset()
         ...     print(f"Patient {result.observation.patient_id}: HR={result.observation.heart_rate}")
         ...

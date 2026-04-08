@@ -22,7 +22,7 @@ Last updated: 2026-04-08
 - [x] grader.py returns scores in 0.0-1.0 range
 - [x] inference.py with structured logging ([START], [STEP], [END])
 - [x] OpenAI-compatible client setup
-- [x] .env file configured (API_BASE_URL, MODEL_NAME, HF_TOKEN)
+- [x] .env file configured (OPENAI_BASE_URL, MODEL_NAME, OPENAI_API_KEY)
 - [x] validation.py script available
 
 ### 4. Documentation

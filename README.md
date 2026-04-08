@@ -22,35 +22,33 @@ An OpenEnv reinforcement learning environment simulating emergency room patient 
 The simplest way to use the ER Triage environment is through the `ErTriageEnv` class:
 
 ```python
+import asyncio
+
 from ER_Triage import ErTriageAction, ErTriageEnv, TriagePriority
 
-try:
-    # Create environment from Docker image
-    env = ErTriageEnv.from_docker_image("er-triage-env:latest")
-
-    # Reset to start a new episode
-    result = env.reset()
-    obs = result.observation
-    print(f"Patient {obs.patient_id}: {obs.chief_complaint}")
-    print(f"Vitals: BP {obs.systolic_bp}/{obs.diastolic_bp}, HR {obs.heart_rate}, SpO2 {obs.oxygen_saturation}%")
-
-    # Triage patients
-    while obs.patients_remaining > 0:
-        # Assign priority based on vitals (your agent logic here)
-        if obs.oxygen_saturation < 85 or obs.systolic_bp < 80:
-            priority = TriagePriority.CRITICAL
-        elif obs.heart_rate > 120 or obs.respiratory_rate > 24:
-            priority = TriagePriority.EMERGENT
-        else:
-            priority = TriagePriority.URGENT
-        
-        result = env.step(ErTriageAction(priority=priority))
+async def main():
+    env = await ErTriageEnv.from_docker_image("er-triage-env:latest")
+    try:
+        result = await env.reset()
         obs = result.observation
-        print(f"Assigned P{priority} → Reward: {result.reward:.3f}")
+        print(f"Patient {obs.patient_id}: {obs.chief_complaint}")
+        print(f"Vitals: BP {obs.systolic_bp}/{obs.diastolic_bp}, HR {obs.heart_rate}, SpO2 {obs.oxygen_saturation}%")
 
-finally:
-    # Always clean up
-    env.close()
+        while obs.patients_remaining > 0:
+            if obs.oxygen_saturation < 85 or obs.systolic_bp < 80:
+                priority = TriagePriority.CRITICAL
+            elif obs.heart_rate > 120 or obs.respiratory_rate > 24:
+                priority = TriagePriority.EMERGENT
+            else:
+                priority = TriagePriority.URGENT
+
+            result = await env.step(ErTriageAction(priority=priority))
+            obs = result.observation
+            print(f"Assigned P{priority} → Reward: {result.reward:.3f}")
+    finally:
+        await env.close()
+
+asyncio.run(main())
 ```
 
 That's it! The `ErTriageEnv.from_docker_image()` method handles:
@@ -200,8 +198,8 @@ The client supports context manager usage for automatic connection management:
 ```python
 from ER_Triage import ErTriageAction, ErTriageEnv, TriagePriority
 
-# Connect with context manager (auto-connects and closes)
-with ErTriageEnv(base_url="http://localhost:8000") as env:
+# Connect with synchronous wrapper (auto-connects and closes)
+with ErTriageEnv(base_url="http://localhost:8000").sync() as env:
     result = env.reset()
     obs = result.observation
     
@@ -241,7 +239,7 @@ from ER_Triage import ErTriageAction, ErTriageEnv, TriagePriority
 from concurrent.futures import ThreadPoolExecutor
 
 def run_episode(client_id: int):
-    with ErTriageEnv(base_url="http://localhost:8000") as env:
+    with ErTriageEnv(base_url="http://localhost:8000").sync() as env:
         result = env.reset()
         while not result.observation.done:
             result = env.step(ErTriageAction(priority=TriagePriority.URGENT))
@@ -336,9 +334,15 @@ Run the LLM agent through all 3 tasks:
 
 ```bash
 # Set up environment variables in .env
-API_BASE_URL=https://router.huggingface.co/v1
-MODEL_NAME=Qwen/Qwen2.5-72B-Instruct
-HF_TOKEN=your_token_here
+# Default path: OpenAI
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4.1-mini
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Legacy fallback: existing Hugging Face router setup still works
+# API_BASE_URL=https://router.huggingface.co/v1
+# MODEL_NAME=Qwen/Qwen2.5-72B-Instruct
+# HF_TOKEN=your_hf_token_here
 
 # Run inference
 uv run python inference.py
@@ -349,7 +353,7 @@ uv run openenv validate
 
 The script outputs structured logs for validation:
 ```
-[START] task=task_1 env=er_triage model=Qwen/Qwen2.5-72B-Instruct
-[STEP] step=1 action=priority:2 reward=0.85 done=false error=null
+[START] task=task_1 env=er_triage model=gpt-4.1-mini
+[STEP] step=1 action=priority=2 reward=0.85 done=false error=null
 [END] success=true steps=5 score=0.82 rewards=0.85,0.90,0.75,0.80,0.82
 ```
