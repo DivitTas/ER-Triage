@@ -35,12 +35,22 @@ except Exception as e:  # pragma: no cover
         "openenv is required for the web interface. Install dependencies with '\n    uv sync\n'"
     ) from e
 
+# Import handling for both package and direct execution contexts
+import sys
+from pathlib import Path
+
+# Ensure parent directory is in path for Docker execution
+parent_dir = Path(__file__).parent.parent
+if str(parent_dir) not in sys.path:
+    sys.path.insert(0, str(parent_dir))
+
 try:
-    from ..models import ErTriageAction, ErTriageObservation
-    from .ER_Triage_environment import ErTriageEnvironment
-except ModuleNotFoundError:
     from models import ErTriageAction, ErTriageObservation
     from server.ER_Triage_environment import ErTriageEnvironment
+except ImportError:
+    # Try relative imports as fallback
+    from ..models import ErTriageAction, ErTriageObservation
+    from .ER_Triage_environment import ErTriageEnvironment
 
 
 # Create the app with web interface and README integration
