@@ -237,15 +237,15 @@ app = create_app(
 Then multiple clients can connect simultaneously:
 
 ```python
-from ER_Triage import ErTriageAction, ErTriageEnv
+from ER_Triage import ErTriageAction, ErTriageEnv, TriagePriority
 from concurrent.futures import ThreadPoolExecutor
 
 def run_episode(client_id: int):
     with ErTriageEnv(base_url="http://localhost:8000") as env:
         result = env.reset()
-        for i in range(10):
-            result = env.step(ErTriageAction(message=f"Client {client_id}, step {i}"))
-        return client_id, result.observation.message_length
+        while not result.observation.done:
+            result = env.step(ErTriageAction(priority=TriagePriority.URGENT))
+        return client_id, result.reward, result.observation.patients_remaining
 
 # Run 4 episodes concurrently
 with ThreadPoolExecutor(max_workers=4) as executor:
@@ -265,12 +265,12 @@ from server.ER_Triage_environment import ErTriageEnvironment
 from models import ErTriageAction, TriagePriority
 
 env = ErTriageEnvironment(task_id='task_1')
-state = env.reset()
-print(f'Initial patient: {state.observation.chief_complaint}')
+obs = env.reset()
+print(f'Initial patient: {obs.chief_complaint}')
 
 for i in range(5):
-    state = env.step(ErTriageAction(priority=TriagePriority.URGENT))
-    print(f'Step {i+1}: Reward={state.reward:.3f}, Remaining={state.observation.patients_remaining}')
+    obs = env.step(ErTriageAction(priority=TriagePriority.URGENT))
+    print(f'Step {i+1}: Reward={obs.reward:.3f}, Remaining={obs.patients_remaining}')
 "
 ```
 
@@ -289,6 +289,7 @@ Run the server locally for development:
 cd ER_Triage
 uv sync
 uv run server --port 8000
+uv run pytest
 
 # Or using uvicorn directly
 uvicorn server.app:app --reload --port 8000
@@ -341,6 +342,9 @@ HF_TOKEN=your_token_here
 
 # Run inference
 uv run python inference.py
+
+# Validate local packaging
+uv run openenv validate
 ```
 
 The script outputs structured logs for validation:

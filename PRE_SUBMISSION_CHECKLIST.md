@@ -31,12 +31,10 @@ Last updated: 2026-04-08
 - [x] Docker build instructions
 - [x] openenv.yaml manifest
 
-## ⚠️ Warnings (Non-Blocking)
+## ✅ Validation Status
 
-- [ ] OpenEnv validate reports "not ready for multi-mode deployment"
-  - **Status**: Docker mode works (primary deployment method)
-  - **Impact**: None for HF Spaces deployment
-  - **Action**: Can ignore for submission
+- [x] `uv run openenv validate` passes locally
+- [x] Local runtime validation passes against `http://127.0.0.1:8000`
 
 ## 🔄 To Complete Before Submission
 

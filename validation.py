@@ -135,17 +135,20 @@ fi
 
 if [ -f "$REPO_DIR/Dockerfile" ]; then
   DOCKER_CONTEXT="$REPO_DIR"
+  DOCKERFILE_PATH="$REPO_DIR/Dockerfile"
 elif [ -f "$REPO_DIR/server/Dockerfile" ]; then
-  DOCKER_CONTEXT="$REPO_DIR/server"
+  DOCKER_CONTEXT="$REPO_DIR"
+  DOCKERFILE_PATH="$REPO_DIR/server/Dockerfile"
 else
   fail "No Dockerfile found in repo root or server/ directory"
   stop_at "Step 2"
 fi
 
-log "  Found Dockerfile in $DOCKER_CONTEXT"
+log "  Found Dockerfile at $DOCKERFILE_PATH"
+log "  Using Docker build context $DOCKER_CONTEXT"
 
 BUILD_OK=false
-BUILD_OUTPUT=$(run_with_timeout "$DOCKER_BUILD_TIMEOUT" docker build "$DOCKER_CONTEXT" 2>&1) && BUILD_OK=true
+BUILD_OUTPUT=$(run_with_timeout "$DOCKER_BUILD_TIMEOUT" docker build -f "$DOCKERFILE_PATH" "$DOCKER_CONTEXT" 2>&1) && BUILD_OK=true
 
 if [ "$BUILD_OK" = true ]; then
   pass "Docker build succeeded"
@@ -157,14 +160,19 @@ fi
 
 log "${BOLD}Step 3/3: Running openenv validate${NC} ..."
 
-if ! command -v openenv &>/dev/null; then
-  fail "openenv command not found"
+if command -v openenv &>/dev/null; then
+  OPENENV_VALIDATE_CMD=(openenv validate)
+elif command -v uv &>/dev/null; then
+  OPENENV_VALIDATE_CMD=(uv run openenv validate)
+else
+  fail "Neither openenv nor uv is available"
   hint "Install it: pip install openenv-core"
+  hint "Or install uv and run the validator from the project directory"
   stop_at "Step 3"
 fi
 
 VALIDATE_OK=false
-VALIDATE_OUTPUT=$(cd "$REPO_DIR" && openenv validate 2>&1) && VALIDATE_OK=true
+VALIDATE_OUTPUT=$(cd "$REPO_DIR" && "${OPENENV_VALIDATE_CMD[@]}" 2>&1) && VALIDATE_OK=true
 
 if [ "$VALIDATE_OK" = true ]; then
   pass "openenv validate passed"
