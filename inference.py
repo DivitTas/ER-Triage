@@ -3,15 +3,10 @@ ER Triage Inference Script
 ===================================
 Runs an LLM agent through the ER Triage environment for all 3 tasks.
 
-Environment Variables (from .env):
-    OPENAI_BASE_URL - Optional override for the OpenAI-compatible API endpoint
-    OPENAI_MODEL    - Optional override for the default OpenAI model
-    OPENAI_API_KEY  - Your OpenAI API key
-
-Legacy Hugging Face compatibility:
-    API_BASE_URL    - Legacy Hugging Face router endpoint override
-    MODEL_NAME      - Legacy Hugging Face model name
-    HF_TOKEN        - Legacy Hugging Face token
+Environment Variables:
+    API_BASE_URL - Required OpenAI-compatible API endpoint injected by the evaluator
+    API_KEY      - Required API key injected by the evaluator
+    MODEL_NAME   - Optional model override
 
 STDOUT FORMAT:
     [START] task=<task_name> env=<benchmark> model=<model_name>
@@ -31,34 +26,13 @@ from openai import OpenAI
 from ER_Triage import ErTriageAction, TriagePriority
 from ER_Triage.server import ErTriageEnvironment
 
-# Load environment variables from .env
+DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
+
+# Load environment variables from .env for local development, but always
+# resolve the client from the evaluator's injected variable names.
 load_dotenv()
 
-DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
-DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
-DEFAULT_HF_BASE_URL = "https://router.huggingface.co/v1"
-DEFAULT_HF_MODEL = "Qwen/Qwen2.5-72B-Instruct"
-
-
-def resolve_llm_config() -> tuple[str, str, str]:
-    """Resolve provider settings with OpenAI defaults and legacy HF fallback."""
-    openai_api_key = os.getenv("OPENAI_API_KEY") or os.getenv("API_KEY")
-    openai_base_url = os.getenv("OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL)
-    openai_model = os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL)
-
-    hf_api_key = os.getenv("HF_TOKEN")
-    hf_base_url = os.getenv("API_BASE_URL")
-    hf_model = os.getenv("MODEL_NAME", DEFAULT_HF_MODEL)
-
-    # Preserve existing Hugging Face setups when OpenAI credentials are absent.
-    if not openai_api_key and (hf_api_key or hf_base_url):
-        return hf_base_url or DEFAULT_HF_BASE_URL, hf_model, hf_api_key or ""
-
-    return openai_base_url, openai_model, openai_api_key or ""
-
-
-# Configuration
-API_BASE_URL, MODEL_NAME, API_KEY = resolve_llm_config()
+MODEL_NAME = os.getenv("MODEL_NAME", DEFAULT_OPENAI_MODEL)
 
 BENCHMARK = "er_triage"
 TASKS = ["task_1", "task_2", "task_3"]
@@ -226,17 +200,20 @@ def run_task(client: OpenAI, task_id: str) -> dict:
 
 def main() -> None:
     """Run inference on all 3 tasks."""
-    if not API_KEY:
+    try:
+        client = OpenAI(
+            base_url=os.environ["API_BASE_URL"],
+            api_key=os.environ["API_KEY"],
+        )
+    except KeyError as exc:
         print(
-            "No LLM credentials found. Set OPENAI_API_KEY for the default OpenAI path, "
-            "or keep using the legacy Hugging Face settings with HF_TOKEN/API_BASE_URL.",
+            f"Missing required environment variable: {exc.args[0]}. "
+            "Set API_BASE_URL and API_KEY before running inference.",
             file=sys.stderr,
             flush=True,
         )
         raise SystemExit(1)
-    
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-    
+
     for task_id in TASKS:
         run_task(client, task_id)
 
