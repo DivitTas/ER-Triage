@@ -66,3 +66,39 @@ def test_state_step_count_tracks_actions() -> None:
     env.step(ErTriageAction(priority=TriagePriority.URGENT))
 
     assert env.state.step_count == 2
+
+
+def test_one_level_miss_penalizes_high_acuity_more() -> None:
+    env = ErTriageEnvironment(task_id="task_1")
+
+    high_acuity_reward = env._calculate_reward(
+        ErTriageAction(priority=TriagePriority.EMERGENT),
+        {"true_priority": 1, "deteriorated": False},
+        bed_was_available=True,
+    )
+    low_acuity_reward = env._calculate_reward(
+        ErTriageAction(priority=TriagePriority.LESS_URGENT),
+        {"true_priority": 5, "deteriorated": False},
+        bed_was_available=True,
+    )
+
+    assert 0.0 <= high_acuity_reward <= 1.0
+    assert 0.0 <= low_acuity_reward <= 1.0
+    assert high_acuity_reward < low_acuity_reward
+
+
+def test_deterioration_caps_reward_without_flattening_quality() -> None:
+    env = ErTriageEnvironment(task_id="task_1")
+
+    correct_reward = env._calculate_reward(
+        ErTriageAction(priority=TriagePriority.EMERGENT),
+        {"true_priority": 2, "deteriorated": True},
+        bed_was_available=True,
+    )
+    incorrect_reward = env._calculate_reward(
+        ErTriageAction(priority=TriagePriority.NON_URGENT),
+        {"true_priority": 2, "deteriorated": True},
+        bed_was_available=True,
+    )
+
+    assert 0.0 <= incorrect_reward < correct_reward <= 0.3
