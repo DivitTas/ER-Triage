@@ -68,6 +68,20 @@ def test_state_step_count_tracks_actions() -> None:
     assert env.state.step_count == 2
 
 
+def test_constructor_rejects_invalid_task_id() -> None:
+    with pytest.raises(ValueError, match="Unknown task_id 'task_x'"):
+        ErTriageEnvironment(task_id="task_x")
+
+
+def test_reset_rejects_invalid_task_id_without_mutating_existing_task() -> None:
+    env = ErTriageEnvironment(task_id="task_2")
+
+    with pytest.raises(ValueError, match="Unknown task_id 'task_x'"):
+        env.reset(task_id="task_x")
+
+    assert env._task_id == "task_2"
+
+
 def test_one_level_miss_penalizes_high_acuity_more() -> None:
     env = ErTriageEnvironment(task_id="task_1")
 
