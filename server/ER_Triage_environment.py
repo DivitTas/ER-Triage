@@ -11,6 +11,7 @@ Simulates patient triage with resource constraints (critical beds) and time pres
 (patient deterioration). This creates a true RL problem with sequential dependencies.
 """
 
+import math
 import random
 from uuid import uuid4
 from typing import List, Dict
@@ -157,27 +158,31 @@ class ErTriageEnvironment(Environment):
         """Calculate reward based on triage decision, resources, and patient state."""
         true_priority = patient["true_priority"]
         assigned_priority = action.priority.value
-        priority_diff = abs(assigned_priority - true_priority)
-        
-        # Patient already deteriorated - damage done, limited reward possible
-        if patient["deteriorated"]:
-            return 0.3
-        
-        # Correct priority
+        priority_delta = assigned_priority - true_priority
+        priority_diff = abs(priority_delta)
+
         if priority_diff == 0:
-            if assigned_priority == 1 and not bed_was_available:
-                return 0.6  # Correct but had to transfer
-            return 1.0
-        
-        # Off by 1 level
-        if priority_diff == 1:
-            return 0.5
-        
-        # Off by 2+ levels
-        if true_priority == 1 and assigned_priority >= 3:
-            return 0.0  # Under-triaged critical patient - worst outcome
-        
-        return 0.2
+            base_reward = 1.0
+        else:
+            # P1 should be punished much more than P5 for the same miss distance.
+            criticality = (6 - true_priority) / 5.0  # P1=1.0 ... P5=0.2
+            if priority_delta > 0:
+                # Under-triage: assigning too low urgency.
+                exponent = priority_diff * (0.6 + criticality)
+            else:
+                # Over-triage: less dangerous, still penalized.
+                exponent = priority_diff * (0.1 + (0.6 * criticality))
+            base_reward = math.exp(-exponent)
+
+        if assigned_priority == 1 and not bed_was_available:
+            # Preserve existing transfer penalty when no critical bed is available.
+            base_reward *= 0.6
+
+        if patient["deteriorated"]:
+            # Keep action-quality ordering while capping upside after delay damage.
+            base_reward *= 0.3
+
+        return max(0.0, min(base_reward, 1.0))
 
     def _get_current_observation(self, reward: float = 0.0, done: bool = False) -> ErTriageObservation:
         """Build observation for current patient."""
