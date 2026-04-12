@@ -160,11 +160,21 @@ Three difficulty levels with varying patient counts and severity distributions:
 - `current_patient_wait_time` (int) - Steps this patient has waited
 
 ### Reward Structure
-Rewards are in 0.0-1.0 range based on:
-- **Correct triage** (+0.8-1.0): Priority matches patient severity
-- **Under-triage** (0.0-0.4): Assigning too low priority to critical patients
-- **Over-triage** (0.4-0.6): Wasting critical beds on stable patients
-- **Time penalties**: Patients deteriorate if they wait too long
+Rewards stay in the 0.0-1.0 range, but now use severity-aware exponential shaping instead of flat buckets:
+
+- **Correct triage**: `1.0`
+- **Incorrect triage**: `exp(-x)` where `x` grows with miss distance and patient acuity
+  - Under-triage (assigning less urgent than ground truth) is penalized more than over-triage
+  - A one-level miss on **P1/P2** is punished much more than a one-level miss on **P4/P5**
+- **No critical bed for P1 assignment**: reward gets a transfer penalty (`* 0.6`)
+- **Deteriorated patient**: reward is capped by a delay penalty (`* 0.3`) while still preserving action quality differences
+
+In short: same mistake size, higher-acuity patients cost more.
+
+### Grader Logic
+- `grader.py` scores each episode as the **mean of step rewards**
+- Multi-episode task score is the **mean of episode scores**
+- Since each step reward is bounded to `[0.0, 1.0]`, grader outputs also stay in `[0.0, 1.0]`
 
 ### RL Challenge
 This environment presents a true sequential decision problem:
