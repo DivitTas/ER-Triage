@@ -11,7 +11,39 @@ Evaluates agent performance on triage tasks.
 Returns scores in 0.0-1.0 range as required by hackathon.
 """
 
-from typing import List
+import math
+from collections.abc import Mapping
+from typing import Any, List
+
+
+def _clamp_score(value: Any) -> float:
+    """Coerce arbitrary values into a finite score in the 0.0-1.0 range."""
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+    if not math.isfinite(score):
+        return 0.0
+
+    return max(0.0, min(score, 1.0))
+
+
+def _coerce_sequence(values: Any) -> List[Any]:
+    """Normalize scalars, iterables, and mappings into a list-like payload."""
+    if values is None:
+        return []
+
+    if isinstance(values, Mapping):
+        values = values.values()
+
+    if isinstance(values, (str, bytes)):
+        return [values]
+
+    try:
+        return list(values)
+    except TypeError:
+        return [values]
 
 
 def grade_episode(rewards: List[float]) -> float:
@@ -24,9 +56,10 @@ def grade_episode(rewards: List[float]) -> float:
     Returns:
         Final score in 0.0-1.0 range (average of rewards)
     """
-    if not rewards:
+    normalized_rewards = [_clamp_score(reward) for reward in _coerce_sequence(rewards)]
+    if not normalized_rewards:
         return 0.0
-    return sum(rewards) / len(rewards)
+    return _clamp_score(sum(normalized_rewards) / len(normalized_rewards))
 
 
 def grade_task(task_rewards: List[List[float]]) -> float:
@@ -39,10 +72,11 @@ def grade_task(task_rewards: List[List[float]]) -> float:
     Returns:
         Average score across all episodes (0.0-1.0)
     """
-    if not task_rewards:
+    normalized_task_rewards = _coerce_sequence(task_rewards)
+    if not normalized_task_rewards:
         return 0.0
-    episode_scores = [grade_episode(r) for r in task_rewards]
-    return sum(episode_scores) / len(episode_scores)
+    episode_scores = [grade_episode(rewards) for rewards in normalized_task_rewards]
+    return _clamp_score(sum(episode_scores) / len(episode_scores))
 
 
 # For hackathon validator compatibility
