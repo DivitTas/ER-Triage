@@ -23,10 +23,15 @@ from typing import List, Optional
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from ER_Triage import ErTriageAction, TriagePriority
-from ER_Triage.server import ErTriageEnvironment
+try:
+    from ER_Triage import ErTriageAction, TriagePriority
+    from ER_Triage.server import ErTriageEnvironment
+except ImportError:
+    from models import ErTriageAction, TriagePriority
+    from server import ErTriageEnvironment
 
 DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
+MAX_MODEL_RETRIES = 3
 
 # Load environment variables from .env for local development, but always
 # resolve the client from the evaluator's injected variable names.
@@ -107,33 +112,40 @@ def build_patient_prompt(obs) -> str:
 
 def parse_priority(response: str) -> int:
     """Extract priority number from LLM response."""
-    # Look for a number 1-5 in the response
     match = re.search(r'[1-5]', response)
     if match:
         return int(match.group())
-    # Default to 3 (urgent) if parsing fails
-    return 3
+    sanitized_response = " ".join(response.split())
+    raise ValueError(
+        "Model response did not contain a valid triage priority (1-5): "
+        f"{sanitized_response or '<empty>'}"
+    )
 
 
-def get_triage_decision(client: OpenAI, obs) -> tuple[int, Optional[str]]:
+def get_triage_decision(client: OpenAI, obs) -> int:
     """Get triage priority from LLM based on patient vitals."""
     user_prompt = build_patient_prompt(obs)
-    try:
-        completion = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=TEMPERATURE,
-            max_tokens=MAX_TOKENS,
-            stream=False,
-        )
-        response = (completion.choices[0].message.content or "").strip()
-        return parse_priority(response), None
-    except Exception as exc:
-        sanitized_error = " ".join(str(exc).split())
-        return 3, sanitized_error or "model_request_failed"
+    last_error = "model_request_failed"
+
+    for _ in range(MAX_MODEL_RETRIES):
+        try:
+            completion = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=TEMPERATURE,
+                max_tokens=MAX_TOKENS,
+                stream=False,
+            )
+            response = (completion.choices[0].message.content or "").strip()
+            return parse_priority(response)
+        except Exception as exc:
+            sanitized_error = " ".join(str(exc).split())
+            last_error = sanitized_error or "model_request_failed"
+
+    raise RuntimeError(f"LLM request failed after {MAX_MODEL_RETRIES} attempts: {last_error}")
 
 
 def run_task(client: OpenAI, task_id: str) -> dict:
@@ -155,7 +167,7 @@ def run_task(client: OpenAI, task_id: str) -> dict:
                 break
             
             # Get LLM triage decision
-            priority_num, error = get_triage_decision(client, obs)
+            priority_num = get_triage_decision(client, obs)
             priority = TriagePriority(priority_num)
             action = ErTriageAction(priority=priority)
             
@@ -172,7 +184,7 @@ def run_task(client: OpenAI, task_id: str) -> dict:
                 action=f"priority={priority_num}",
                 reward=reward,
                 done=done,
-                error=error
+                error=None,
             )
             
             if done:
