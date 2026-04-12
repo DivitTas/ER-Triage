@@ -80,6 +80,7 @@ TASK_CONFIG = {
     "task_2": {"num_patients": 10, "priority_weights": [0.2, 0.25, 0.25, 0.2, 0.1]}, # Medium
     "task_3": {"num_patients": 15, "priority_weights": [0.3, 0.3, 0.2, 0.1, 0.1]},   # Hard (more critical)
 }
+VALID_TASK_IDS = tuple(TASK_CONFIG.keys())
 
 BED_COOLDOWN_STEPS = 4  # Steps until a bed frees up
 MAX_WAIT_BEFORE_DETERIORATION = 3  # Steps before P1/P2 patients deteriorate
@@ -101,12 +102,20 @@ class ErTriageEnvironment(Environment):
     def __init__(self, task_id: str = "task_1"):
         """Initialize the ER_Triage environment."""
         self._state = State(episode_id=str(uuid4()), step_count=0)
-        self._task_id = task_id
+        self._task_id = self._validate_task_id(task_id)
         self._patients: List[Dict] = []
         self._current_idx = 0
         self._critical_beds = 2
         self._bed_free_at: List[int] = []  # Step counts when beds free up
         self._global_step = 0
+
+    @staticmethod
+    def _validate_task_id(task_id: str) -> str:
+        """Validate task IDs against the supported task configuration keys."""
+        if task_id not in TASK_CONFIG:
+            valid_task_ids = ", ".join(VALID_TASK_IDS)
+            raise ValueError(f"Unknown task_id '{task_id}'. Expected one of: {valid_task_ids}")
+        return task_id
 
     def _generate_patient(self, patient_id: int, priority: int) -> Dict:
         """Generate a patient with vitals matching the given priority."""
@@ -229,8 +238,8 @@ class ErTriageEnvironment(Environment):
         Args:
             task_id: Optional task identifier ("task_1", "task_2", "task_3")
         """
-        if task_id:
-            self._task_id = task_id
+        if task_id is not None:
+            self._task_id = self._validate_task_id(task_id)
             
         self._state = State(episode_id=str(uuid4()), step_count=0)
         self._current_idx = 0
@@ -239,7 +248,7 @@ class ErTriageEnvironment(Environment):
         self._global_step = 0
         
         # Generate patients based on task config
-        config = TASK_CONFIG.get(self._task_id, TASK_CONFIG["task_1"])
+        config = TASK_CONFIG[self._task_id]
         num_patients = config["num_patients"]
         weights = config["priority_weights"]
         
